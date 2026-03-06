@@ -7,21 +7,19 @@ import os
 import shap
 import matplotlib.pyplot as plt
 
-# RAG imports — using modern LCEL chains instead of deprecated RetrievalQA
+# RAG imports — pure LCEL, no langchain.chains (broken on Python 3.14)
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.output_parsers import StrOutputParser
 
 # --- CONFIG ---
 st.set_page_config(page_title="Loan Intelligence System", page_icon="🏦", layout="wide")
 
 # --- API KEY ---
-# Streamlit Cloud injects secrets as env vars, so os.environ works.
-# This also supports a local .env file via dotenv if present.
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -54,35 +52,39 @@ def load_rag_chain():
     chunks = splitter.split_documents(documents)
     embeddings = OpenAIEmbeddings(api_key=api_key)
     vectorstore = FAISS.from_documents(chunks, embeddings)
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
     llm = ChatOpenAI(api_key=api_key, model="gpt-3.5-turbo", temperature=0)
 
-    # Modern LCEL prompt — must use "context" and "input" variables
-    system_prompt = (
-        "You are a loan officer assistant explaining why a loan application "
-        "was denied. Use the following policy documents to explain the decision "
-        "clearly and professionally to the applicant.\n\n"
-        "Policy context:\n{context}\n\n"
-        "Provide a clear, empathetic explanation referencing specific policies. "
-        "Give the applicant actionable advice on how to improve their chances."
-    )
     prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("human", "{input}"),
+        (
+            "system",
+            "You are a loan officer assistant explaining why a loan application "
+            "was denied. Use the following policy documents to explain the decision "
+            "clearly and professionally to the applicant.\n\n"
+            "Policy context:\n{context}\n\n"
+            "Provide a clear, empathetic explanation referencing specific policies. "
+            "Give the applicant actionable advice on how to improve their chances.",
+        ),
+        ("human", "{question}"),
     ])
 
-    # Build modern LCEL chain (replaces deprecated RetrievalQA)
-    document_chain = create_stuff_documents_chain(llm, prompt)
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
-    qa_chain = create_retrieval_chain(retriever, document_chain)
+    def format_docs(docs):
+        return "\n\n".join(doc.page_content for doc in docs)
+
+    # Pure LCEL chain — no langchain.chains imports needed
+    qa_chain = (
+        {"context": retriever | format_docs, "question": RunnablePassthrough()}
+        | prompt
+        | llm
+        | StrOutputParser()
+    )
     return qa_chain
 
 # --- FEATURE ENGINEERING ---
 def prepare_input(data):
-    # Encode term
     data["term"] = 36 if data["term"] == "36 months" else 60
 
-    # Encode emp_length
     emp_map = {
         "Unknown": 0, "< 1 year": 0.5, "1 year": 1, "2 years": 2,
         "3 years": 3, "4 years": 4, "5 years": 5, "6 years": 6,
@@ -90,16 +92,13 @@ def prepare_input(data):
     }
     data["emp_length"] = emp_map.get(data["emp_length"], 0)
 
-    # Encode grade
     grade_map = {"A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2, "G": 1}
     data["grade"] = grade_map.get(data["grade"], 4)
 
-    # Encode sub_grade
     sub_grades = [f"{g}{n}" for g in "ABCDEFG" for n in range(1, 6)]
     sub_grade_map = {sg: i for i, sg in enumerate(reversed(sub_grades), 1)}
     data["sub_grade"] = sub_grade_map.get(data["sub_grade"], 18)
 
-    # All possible one-hot columns
     home_ownership_cols = [
         "home_ownership_MORTGAGE", "home_ownership_NONE",
         "home_ownership_OTHER", "home_ownership_OWN",
@@ -113,11 +112,9 @@ def prepare_input(data):
         "purpose_small_business", "purpose_vacation", "purpose_wedding",
     ]
 
-    # Set all to 0 first
     for col in home_ownership_cols + purpose_cols:
         data[col] = 0
 
-    # Set the selected ones to 1
     home_col = f"home_ownership_{data['home_ownership']}"
     purpose_col = f"purpose_{data['purpose']}"
     if home_col in data:
@@ -125,11 +122,9 @@ def prepare_input(data):
     if purpose_col in data:
         data[purpose_col] = 1
 
-    # Remove original categorical columns
     del data["home_ownership"]
     del data["purpose"]
 
-    # Define exact column order from training
     column_order = [
         "loan_amnt", "term", "int_rate", "installment", "grade", "sub_grade",
         "annual_inc", "dti", "emp_length", "fico_range_low", "fico_range_high",
@@ -214,18 +209,17 @@ if st.button("🔍 Assess Loan Application", type="primary"):
 
         # RAG explanation
         with st.spinner("Generating explanation..."):
-            question = f"""
-            A loan application has been DENIED. Applicant details:
-            - Loan amount: ${loan_amnt:,}, Term: {term}
-            - Credit grade: {grade} ({sub_grade}), FICO: {fico}
-            - Annual income: ${annual_inc:,}, DTI: {dti}%
-            - Employment: {emp_length}, Purpose: {purpose}
-            Why was this denied and how can the applicant improve?
-            """
-            # Modern chain uses "input" key and returns "answer" key
-            response = qa_chain.invoke({"input": question})
+            question = (
+                f"A loan application has been DENIED. Applicant details: "
+                f"Loan amount: ${loan_amnt:,}, Term: {term}, "
+                f"Credit grade: {grade} ({sub_grade}), FICO: {fico}, "
+                f"Annual income: ${annual_inc:,}, DTI: {dti}%, "
+                f"Employment: {emp_length}, Purpose: {purpose}. "
+                f"Why was this denied and how can the applicant improve?"
+            )
+            result = qa_chain.invoke(question)
             st.subheader("📋 Explanation")
-            st.write(response["answer"])
+            st.write(result)
 
         # SHAP chart
         with st.spinner("Generating SHAP explanation..."):
