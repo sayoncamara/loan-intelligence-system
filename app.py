@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import xgboost as xgb
 from xgboost import XGBClassifier
-from dotenv import load_dotenv
 import os
 import shap
 import matplotlib.pyplot as plt
@@ -18,25 +18,31 @@ from langchain_core.prompts import PromptTemplate
 # --- CONFIG ---
 st.set_page_config(page_title="Loan Intelligence System", page_icon="🏦", layout="wide")
 
-# --- LOAD ENV ---
-load_dotenv()
-api_key = os.getenv('OPENAI_API_KEY')
+# --- API KEY ---
+# Streamlit Cloud injects secrets as env vars, so os.getenv works.
+# This also supports a local .env file via dotenv if present.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+api_key = os.environ.get("OPENAI_API_KEY", "")
 
 # --- LOAD MODEL ---
 @st.cache_resource
 def load_model():
-    import xgboost as xgb
-    model = xgb.Booster()
-    model.load_model('xgboost_loan_model.json')
+    model = XGBClassifier()
+    model.load_model("xgboost_loan_model.json")
     return model
 
 # --- LOAD RAG CHAIN ---
 @st.cache_resource
 def load_rag_chain():
     policy_files = [
-        'policies/credit_score_policy.txt',
-        'policies/dti_policy.txt',
-        'policies/loan_purpose_policy.txt'
+        "policies/credit_score_policy.txt",
+        "policies/dti_policy.txt",
+        "policies/loan_purpose_policy.txt",
     ]
     documents = []
     for file in policy_files:
@@ -64,45 +70,51 @@ Give the applicant actionable advice on how to improve their chances."""
 
     prompt = PromptTemplate(
         template=prompt_template,
-        input_variables=["context", "question"]
+        input_variables=["context", "question"],
     )
     qa_chain = RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
         retriever=vectorstore.as_retriever(search_kwargs={"k": 3}),
-        chain_type_kwargs={"prompt": prompt}
+        chain_type_kwargs={"prompt": prompt},
     )
     return qa_chain
 
 # --- FEATURE ENGINEERING ---
 def prepare_input(data):
     # Encode term
-    data['term'] = 36 if data['term'] == '36 months' else 60
+    data["term"] = 36 if data["term"] == "36 months" else 60
 
     # Encode emp_length
-    emp_map = {'Unknown': 0, '< 1 year': 0.5, '1 year': 1, '2 years': 2,
-               '3 years': 3, '4 years': 4, '5 years': 5, '6 years': 6,
-               '7 years': 7, '8 years': 8, '9 years': 9, '10+ years': 10}
-    data['emp_length'] = emp_map.get(data['emp_length'], 0)
+    emp_map = {
+        "Unknown": 0, "< 1 year": 0.5, "1 year": 1, "2 years": 2,
+        "3 years": 3, "4 years": 4, "5 years": 5, "6 years": 6,
+        "7 years": 7, "8 years": 8, "9 years": 9, "10+ years": 10,
+    }
+    data["emp_length"] = emp_map.get(data["emp_length"], 0)
 
     # Encode grade
-    grade_map = {'A': 7, 'B': 6, 'C': 5, 'D': 4, 'E': 3, 'F': 2, 'G': 1}
-    data['grade'] = grade_map.get(data['grade'], 4)
+    grade_map = {"A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2, "G": 1}
+    data["grade"] = grade_map.get(data["grade"], 4)
 
     # Encode sub_grade
-    sub_grades = [f'{g}{n}' for g in 'ABCDEFG' for n in range(1, 6)]
+    sub_grades = [f"{g}{n}" for g in "ABCDEFG" for n in range(1, 6)]
     sub_grade_map = {sg: i for i, sg in enumerate(reversed(sub_grades), 1)}
-    data['sub_grade'] = sub_grade_map.get(data['sub_grade'], 18)
+    data["sub_grade"] = sub_grade_map.get(data["sub_grade"], 18)
 
     # All possible one-hot columns
-    home_ownership_cols = ['home_ownership_MORTGAGE', 'home_ownership_NONE',
-                       'home_ownership_OTHER', 'home_ownership_OWN',
-                       'home_ownership_RENT']
-    purpose_cols = ['purpose_credit_card', 'purpose_debt_consolidation',
-                    'purpose_educational', 'purpose_home_improvement',
-                    'purpose_house', 'purpose_major_purchase', 'purpose_medical',
-                    'purpose_moving', 'purpose_other', 'purpose_renewable_energy',
-                    'purpose_small_business', 'purpose_vacation', 'purpose_wedding']
+    home_ownership_cols = [
+        "home_ownership_MORTGAGE", "home_ownership_NONE",
+        "home_ownership_OTHER", "home_ownership_OWN",
+        "home_ownership_RENT",
+    ]
+    purpose_cols = [
+        "purpose_credit_card", "purpose_debt_consolidation",
+        "purpose_educational", "purpose_home_improvement",
+        "purpose_house", "purpose_major_purchase", "purpose_medical",
+        "purpose_moving", "purpose_other", "purpose_renewable_energy",
+        "purpose_small_business", "purpose_vacation", "purpose_wedding",
+    ]
 
     # Set all to 0 first
     for col in home_ownership_cols + purpose_cols:
@@ -117,23 +129,23 @@ def prepare_input(data):
         data[purpose_col] = 1
 
     # Remove original categorical columns
-    del data['home_ownership']
-    del data['purpose']
+    del data["home_ownership"]
+    del data["purpose"]
 
     # Define exact column order from training
     column_order = [
-    'loan_amnt', 'term', 'int_rate', 'installment', 'grade', 'sub_grade',
-    'annual_inc', 'dti', 'emp_length', 'fico_range_low', 'fico_range_high',
-    'open_acc', 'pub_rec', 'revol_bal', 'revol_util', 'total_acc',
-    'mort_acc', 'pub_rec_bankruptcies',
-    'home_ownership_MORTGAGE', 'home_ownership_NONE', 
-    'home_ownership_OTHER', 'home_ownership_OWN', 'home_ownership_RENT',
-    'purpose_credit_card', 'purpose_debt_consolidation',
-    'purpose_educational', 'purpose_home_improvement',
-    'purpose_house', 'purpose_major_purchase', 'purpose_medical',
-    'purpose_moving', 'purpose_other', 'purpose_renewable_energy',
-    'purpose_small_business', 'purpose_vacation', 'purpose_wedding'
-]
+        "loan_amnt", "term", "int_rate", "installment", "grade", "sub_grade",
+        "annual_inc", "dti", "emp_length", "fico_range_low", "fico_range_high",
+        "open_acc", "pub_rec", "revol_bal", "revol_util", "total_acc",
+        "mort_acc", "pub_rec_bankruptcies",
+        "home_ownership_MORTGAGE", "home_ownership_NONE",
+        "home_ownership_OTHER", "home_ownership_OWN", "home_ownership_RENT",
+        "purpose_credit_card", "purpose_debt_consolidation",
+        "purpose_educational", "purpose_home_improvement",
+        "purpose_house", "purpose_major_purchase", "purpose_medical",
+        "purpose_moving", "purpose_other", "purpose_renewable_energy",
+        "purpose_small_business", "purpose_vacation", "purpose_wedding",
+    ]
 
     return pd.DataFrame([data])[column_order]
 
@@ -152,18 +164,18 @@ with col1:
     purpose = st.selectbox("Loan Purpose", [
         "debt_consolidation", "credit_card", "home_improvement",
         "other", "major_purchase", "small_business", "medical",
-        "moving", "vacation", "wedding", "house", "renewable_energy", "educational"
+        "moving", "vacation", "wedding", "house", "renewable_energy", "educational",
     ])
 
 with col2:
     st.subheader("Applicant Details")
     grade = st.selectbox("Credit Grade", ["A", "B", "C", "D", "E", "F", "G"])
-    sub_grade = st.selectbox("Sub Grade", [f'{g}{n}' for g in 'ABCDEFG' for n in range(1, 6)])
+    sub_grade = st.selectbox("Sub Grade", [f"{g}{n}" for g in "ABCDEFG" for n in range(1, 6)])
     annual_inc = st.number_input("Annual Income ($)", 10000, 300000, 60000)
     dti = st.slider("Debt-to-Income Ratio (%)", 0.0, 60.0, 20.0)
     emp_length = st.selectbox("Employment Length", [
-        '< 1 year', '1 year', '2 years', '3 years', '4 years',
-        '5 years', '6 years', '7 years', '8 years', '9 years', '10+ years', 'Unknown'
+        "< 1 year", "1 year", "2 years", "3 years", "4 years",
+        "5 years", "6 years", "7 years", "8 years", "9 years", "10+ years", "Unknown",
     ])
     fico = st.slider("FICO Credit Score", 580, 850, 700)
     home_ownership = st.selectbox("Home Ownership", ["RENT", "MORTGAGE", "OWN", "OTHER"])
@@ -181,20 +193,20 @@ if st.button("🔍 Assess Loan Application", type="primary"):
     qa_chain = load_rag_chain()
 
     input_data = {
-        'loan_amnt': loan_amnt, 'term': term, 'int_rate': int_rate,
-        'installment': installment, 'grade': grade, 'sub_grade': sub_grade,
-        'annual_inc': annual_inc, 'dti': dti, 'emp_length': emp_length,
-        'fico_range_low': fico, 'fico_range_high': fico + 4,
-        'open_acc': open_acc, 'pub_rec': pub_rec, 'revol_bal': revol_bal,
-        'revol_util': revol_util, 'total_acc': total_acc, 'mort_acc': mort_acc,
-        'pub_rec_bankruptcies': pub_rec_bankruptcies,
-        'home_ownership': home_ownership, 'purpose': purpose
+        "loan_amnt": loan_amnt, "term": term, "int_rate": int_rate,
+        "installment": installment, "grade": grade, "sub_grade": sub_grade,
+        "annual_inc": annual_inc, "dti": dti, "emp_length": emp_length,
+        "fico_range_low": fico, "fico_range_high": fico + 4,
+        "open_acc": open_acc, "pub_rec": pub_rec, "revol_bal": revol_bal,
+        "revol_util": revol_util, "total_acc": total_acc, "mort_acc": mort_acc,
+        "pub_rec_bankruptcies": pub_rec_bankruptcies,
+        "home_ownership": home_ownership, "purpose": purpose,
     }
 
-  X_input = prepare_input(input_data.copy())
-dmatrix = xgb.DMatrix(X_input)
-prob = model.predict(dmatrix)[0]
-prediction = int(prob > 0.5)
+    X_input = prepare_input(input_data.copy())
+    prob = model.predict_proba(X_input)[0][1]
+    prediction = int(prob > 0.5)
+
     st.divider()
 
     if prediction == 0:
@@ -215,17 +227,20 @@ prediction = int(prob > 0.5)
             """
             response = qa_chain.invoke({"query": question})
             st.subheader("📋 Explanation")
-            st.write(response['result'])
+            st.write(response["result"])
 
         # SHAP chart
         with st.spinner("Generating SHAP explanation..."):
             explainer = shap.TreeExplainer(model)
             shap_values = explainer.shap_values(X_input)
             fig, ax = plt.subplots(figsize=(10, 6))
-            shap.plots.waterfall(shap.Explanation(
-                values=shap_values[0],
-                base_values=explainer.expected_value,
-                data=X_input.iloc[0],
-                feature_names=X_input.columns.tolist()
-            ), show=False)
+            shap.plots.waterfall(
+                shap.Explanation(
+                    values=shap_values[0],
+                    base_values=explainer.expected_value,
+                    data=X_input.iloc[0],
+                    feature_names=X_input.columns.tolist(),
+                ),
+                show=False,
+            )
             st.pyplot(fig)
