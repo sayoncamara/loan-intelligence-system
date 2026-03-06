@@ -12,7 +12,7 @@ from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
-from langchain_classic.chains import RetrievalQA
+from langchain.chains import RetrievalQA
 from langchain_core.prompts import PromptTemplate
 
 # --- CONFIG ---
@@ -25,7 +25,8 @@ api_key = os.getenv('OPENAI_API_KEY')
 # --- LOAD MODEL ---
 @st.cache_resource
 def load_model():
-    model = XGBClassifier()
+    import xgboost as xgb
+    model = xgb.Booster()
     model.load_model('xgboost_loan_model.json')
     return model
 
@@ -190,10 +191,10 @@ if st.button("🔍 Assess Loan Application", type="primary"):
         'home_ownership': home_ownership, 'purpose': purpose
     }
 
-    X_input = prepare_input(input_data.copy())
-    prob = model.predict_proba(X_input)[0][1]
-    prediction = int(prob > 0.5)
-
+  X_input = prepare_input(input_data.copy())
+dmatrix = xgb.DMatrix(X_input)
+prob = model.predict(dmatrix)[0]
+prediction = int(prob > 0.5)
     st.divider()
 
     if prediction == 0:
