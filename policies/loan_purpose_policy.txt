@@ -1,0 +1,14 @@
+LOAN PURPOSE AND TERM POLICY
+
+Loan term risk assessment:
+- 36-month loans: Standard risk, preferred term
+- 60-month loans: Higher risk due to extended exposure
+
+High risk loan purposes:
+- Small business loans carry elevated default risk
+- Debt consolidation loans require DTI below 40%
+
+Employment requirements:
+- Minimum 1 year employment history preferred
+- Less than 1 year employment requires compensating factors
+- Unknown employment history increases risk assessment

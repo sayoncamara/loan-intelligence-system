@@ -1,0 +1,10 @@
+DEBT-TO-INCOME RATIO POLICY
+
+Debt-to-income (DTI) ratio guidelines:
+- DTI below 20%: Excellent, strong approval likelihood
+- DTI 20-35%: Acceptable, standard approval process
+- DTI 35-43%: Elevated risk, additional scrutiny required
+- DTI above 43%: High risk, likely denial
+- DTI above 50%: Automatic denial in most cases
+
+DTI is calculated as total monthly debt payments divided by gross monthly income.

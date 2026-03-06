@@ -1,0 +1,13 @@
+CREDIT SCORE LENDING POLICY
+
+Minimum credit score requirements:
+- Grade A loans: FICO score 750 and above
+- Grade B loans: FICO score 700-749
+- Grade C loans: FICO score 660-699
+- Grade D loans: FICO score 630-659
+- Grade E loans: FICO score 600-629
+- Grade F/G loans: FICO score below 600 (high risk, limited approval)
+
+Applicants with FICO scores below 580 are considered high risk and will 
+typically be denied unless compensating factors are present such as 
+low debt-to-income ratio or significant assets.
