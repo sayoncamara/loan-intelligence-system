@@ -19,24 +19,24 @@ from langchain_core.prompts import PromptTemplate
 st.set_page_config(page_title="Loan Intelligence System", page_icon="🏦", layout="wide")
 
 # --- LOAD ENV ---
-load_dotenv(r'C:\Users\sayon\OneDrive\Desktop\Project\.env')
+load_dotenv()
 api_key = os.getenv('OPENAI_API_KEY')
 
 # --- LOAD MODEL ---
 @st.cache_resource
 def load_model():
     model = XGBClassifier()
-    model.load_model(r'C:\Users\sayon\OneDrive\Desktop\Project\xgboost_loan_model.json')
+    model.load_model('xgboost_loan_model.json')
     return model
 
 # --- LOAD RAG CHAIN ---
 @st.cache_resource
 def load_rag_chain():
-    policy_files = [
-        r'C:\Users\sayon\OneDrive\Desktop\Project\policies\credit_score_policy.txt',
-        r'C:\Users\sayon\OneDrive\Desktop\Project\policies\dti_policy.txt',
-        r'C:\Users\sayon\OneDrive\Desktop\Project\policies\loan_purpose_policy.txt'
-    ]
+policy_files = [
+    'policies/credit_score_policy.txt',
+    'policies/dti_policy.txt',
+    'policies/loan_purpose_policy.txt'
+]
     documents = []
     for file in policy_files:
         loader = TextLoader(file)
