@@ -5,7 +5,7 @@ xgboost>=2.1.0
 shap
 matplotlib
 scikit-learn
-langchain>=0.3,<0.4
+langchain-core>=0.3,<0.4
 langchain-openai
 langchain-community
 langchain-text-splitters
@@ -13,3 +13,4 @@ faiss-cpu
 openai
 python-dotenv
 tiktoken
+
