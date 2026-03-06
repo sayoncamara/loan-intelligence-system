@@ -7,19 +7,20 @@ import os
 import shap
 import matplotlib.pyplot as plt
 
-# RAG imports
+# RAG imports — using modern LCEL chains instead of deprecated RetrievalQA
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
-from langchain.chains import RetrievalQA
-from langchain_core.prompts import PromptTemplate
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate
 
 # --- CONFIG ---
 st.set_page_config(page_title="Loan Intelligence System", page_icon="🏦", layout="wide")
 
 # --- API KEY ---
-# Streamlit Cloud injects secrets as env vars, so os.getenv works.
+# Streamlit Cloud injects secrets as env vars, so os.environ works.
 # This also supports a local .env file via dotenv if present.
 try:
     from dotenv import load_dotenv
@@ -55,29 +56,25 @@ def load_rag_chain():
     vectorstore = FAISS.from_documents(chunks, embeddings)
 
     llm = ChatOpenAI(api_key=api_key, model="gpt-3.5-turbo", temperature=0)
-    prompt_template = """You are a loan officer assistant explaining why a loan application 
-was denied. Use the following policy documents to explain the decision clearly and 
-professionally to the applicant.
 
-Policy context:
-{context}
-
-Loan application details and question:
-{question}
-
-Provide a clear, empathetic explanation referencing specific policies. 
-Give the applicant actionable advice on how to improve their chances."""
-
-    prompt = PromptTemplate(
-        template=prompt_template,
-        input_variables=["context", "question"],
+    # Modern LCEL prompt — must use "context" and "input" variables
+    system_prompt = (
+        "You are a loan officer assistant explaining why a loan application "
+        "was denied. Use the following policy documents to explain the decision "
+        "clearly and professionally to the applicant.\n\n"
+        "Policy context:\n{context}\n\n"
+        "Provide a clear, empathetic explanation referencing specific policies. "
+        "Give the applicant actionable advice on how to improve their chances."
     )
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=vectorstore.as_retriever(search_kwargs={"k": 3}),
-        chain_type_kwargs={"prompt": prompt},
-    )
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        ("human", "{input}"),
+    ])
+
+    # Build modern LCEL chain (replaces deprecated RetrievalQA)
+    document_chain = create_stuff_documents_chain(llm, prompt)
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+    qa_chain = create_retrieval_chain(retriever, document_chain)
     return qa_chain
 
 # --- FEATURE ENGINEERING ---
@@ -225,9 +222,10 @@ if st.button("🔍 Assess Loan Application", type="primary"):
             - Employment: {emp_length}, Purpose: {purpose}
             Why was this denied and how can the applicant improve?
             """
-            response = qa_chain.invoke({"query": question})
+            # Modern chain uses "input" key and returns "answer" key
+            response = qa_chain.invoke({"input": question})
             st.subheader("📋 Explanation")
-            st.write(response["result"])
+            st.write(response["answer"])
 
         # SHAP chart
         with st.spinner("Generating SHAP explanation..."):
