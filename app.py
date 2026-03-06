@@ -32,11 +32,11 @@ def load_model():
 # --- LOAD RAG CHAIN ---
 @st.cache_resource
 def load_rag_chain():
-policy_files = [
-    'policies/credit_score_policy.txt',
-    'policies/dti_policy.txt',
-    'policies/loan_purpose_policy.txt'
-]
+    policy_files = [
+        'policies/credit_score_policy.txt',
+        'policies/dti_policy.txt',
+        'policies/loan_purpose_policy.txt'
+    ]
     documents = []
     for file in policy_files:
         loader = TextLoader(file)
