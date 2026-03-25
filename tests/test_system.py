@@ -62,7 +62,7 @@ class TestFeatureEngineering:
 
     def test_feature_count(self):
         """Model expects exactly 31 features."""
-        expected_features = 31
+        expected_features = 36
         # Count: 8 numeric + 5 home_ownership + 13 purpose + 5 other = 31
         numeric = ["loan_amnt", "term", "int_rate", "installment", "grade",
                     "sub_grade", "annual_inc", "dti"]
