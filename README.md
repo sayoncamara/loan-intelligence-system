@@ -18,6 +18,23 @@
 [![Loan Application Interface](docs/screenshots/hero.png)](docs/screenshots/hero.png)
 
 ---
+---
+
+## 🚀 Live Deployments
+
+| Deployment | Audience | Link |
+|---|---|---|
+| 🎨 **Interactive Streamlit UI** | Non-technical — click through a loan application and see the decision + SHAP plot + RAG explanation | [Streamlit Cloud](https://loan-intelligence-system-6vbtpbunxh7yvf5neajhva.streamlit.app/) |
+| ⚙️ **Production FastAPI on AWS** | Technical — JSON API with auto-generated Swagger docs, deployed on AWS App Runner | [API Docs (`/docs`)](https://edtahjsaja.eu-west-3.awsapprunner.com/docs) |
+
+The FastAPI deployment exposes `POST /predict` with Pydantic-validated inputs, returning structured JSON with the decision, default probability, top 10 SHAP contributions, and (on denial) a RAG-generated policy-grounded explanation. Both deployments share the same `core.py` module — the ML logic is framework-agnostic.
+
+**Production infrastructure on AWS:**
+- Deployed via `apprunner.yaml` (managed Python 3.11 runtime)
+- `OPENAI_API_KEY` stored in **AWS Secrets Manager**, retrieved at runtime via a scoped IAM instance role (no secrets in source)
+- Swagger / OpenAPI spec auto-generated from Pydantic models
+
+---
 
 ## 🎯 The Problem
 
