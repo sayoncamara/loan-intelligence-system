@@ -11,3 +11,6 @@ run:
   command: python3.11 -m uvicorn api:app --host 0.0.0.0 --port 8080
   network:
     port: 8080
+  secrets:
+    - name: OPENAI_API_KEY
+      value-from: "arn:aws:secretsmanager:eu-west-3:062104739390:secret:loan-intelligence/openai-api-key-yQ7CJk"
